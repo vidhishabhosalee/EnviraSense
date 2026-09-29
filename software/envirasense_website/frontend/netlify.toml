@@ -1,0 +1,32 @@
+# EnviraSense · Netlify configuration
+# Works both ways: drag-and-drop the built dist/ folder, or connect the repo and let Netlify build.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# CPCB Live Data: proxy to data.gov.in (no CORS upstream). The site uses the cpcb-proxy Supabase
+# Edge Function by default; set VITE_OGD_BASE=/ogd to use this rewrite instead.
+[[redirects]]
+  from = "/ogd/*"
+  to = "https://api.data.gov.in/:splat"
+  status = 200
+  force = true
+
+# Single-page app fallback
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
