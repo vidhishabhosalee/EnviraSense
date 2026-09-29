@@ -1,1 +1,521 @@
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
+// =========================
+// PIN DEFINITIONS
+// =========================
+
+#define TEMP_PIN        4
+
+#define TURBIDITY_PIN   34
+#define TDS_PIN         33
+
+#define TRIG_PIN        25
+#define ECHO_PIN        27
+
+
+// =========================
+// SETTINGS
+// =========================
+
+#define NODE_ID             "WATER-001"
+
+#define TURBIDITY_DIVIDER   1.5f
+#define AIR_TEMP_C          25.0f
+
+#define ECHO_TIMEOUT_US     30000UL
+
+// Set this to the actual height of
+// the ultrasonic sensor above the water
+#define SENSOR_HEIGHT_CM    0.0f
+
+
+// =========================
+// DS18B20
+// =========================
+
+OneWire oneWire(TEMP_PIN);
+DallasTemperature waterTemp(&oneWire);
+
+
+// =========================
+// SETUP
+// =========================
+
+void setup() {
+
+  Serial.begin(115200);
+
+  delay(1000);
+
+  // Temperature sensor
+  waterTemp.begin();
+
+
+  // Analog sensors
+  pinMode(TURBIDITY_PIN, INPUT);
+  pinMode(TDS_PIN, INPUT);
+
+
+  // Ultrasonic
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  digitalWrite(
+    TRIG_PIN,
+    LOW
+  );
+
+
+  Serial.println();
+  Serial.println("==============================");
+  Serial.println("   EnviRASense Water Node");
+  Serial.println("==============================");
+  Serial.println("Node: WATER-001");
+  Serial.println("Water sensors ready");
+  Serial.println();
+}
+
+
+// =========================
+// READ ULTRASONIC DISTANCE
+// =========================
+
+float readDistanceCm() {
+
+  digitalWrite(
+    TRIG_PIN,
+    LOW
+  );
+
+  delayMicroseconds(2);
+
+  digitalWrite(
+    TRIG_PIN,
+    HIGH
+  );
+
+  delayMicroseconds(10);
+
+  digitalWrite(
+    TRIG_PIN,
+    LOW
+  );
+
+
+  unsigned long duration =
+    pulseIn(
+      ECHO_PIN,
+      HIGH,
+      ECHO_TIMEOUT_US
+    );
+
+
+  if (duration == 0) {
+    return NAN;
+  }
+
+
+  float distance =
+    duration * 0.0343f / 2.0f;
+
+
+  return distance;
+}
+
+
+// =========================
+// READ TDS
+// =========================
+
+float calculateTDS(
+  float voltage,
+  float temperature
+) {
+
+  // Temperature compensation
+  float compensationCoefficient =
+    1.0f +
+    0.02f *
+    (
+      temperature -
+      25.0f
+    );
+
+
+  float compensatedVoltage =
+    voltage /
+    compensationCoefficient;
+
+
+  // Approximate TDS conversion
+  float tds =
+    (
+      133.42f *
+      pow(
+        compensatedVoltage,
+        3
+      )
+      -
+      255.86f *
+      pow(
+        compensatedVoltage,
+        2
+      )
+      +
+      857.39f *
+      compensatedVoltage
+    )
+    * 0.5f;
+
+
+  if (tds < 0) {
+    tds = 0;
+  }
+
+
+  return tds;
+}
+
+
+// =========================
+// MAIN LOOP
+// =========================
+
+void loop() {
+
+  // -------------------------
+  // TEMPERATURE
+  // -------------------------
+
+  waterTemp.requestTemperatures();
+
+  float temperature =
+    waterTemp.getTempCByIndex(0);
+
+
+  if (
+    temperature == DEVICE_DISCONNECTED_C
+  ) {
+    temperature = NAN;
+  }
+
+
+  // -------------------------
+  // TURBIDITY
+  // -------------------------
+
+  int turbidityRaw =
+    analogRead(
+      TURBIDITY_PIN
+    );
+
+
+  float turbidityVoltage =
+    (
+      turbidityRaw *
+      3.3f
+    ) /
+    4095.0f;
+
+
+  // Compensate for voltage divider
+  turbidityVoltage *=
+    TURBIDITY_DIVIDER;
+
+
+  // -------------------------
+  // TDS
+  // -------------------------
+
+  int tdsRaw =
+    analogRead(
+      TDS_PIN
+    );
+
+
+  float tdsVoltage =
+    (
+      tdsRaw *
+      3.3f
+    ) /
+    4095.0f;
+
+
+  float tdsPPM =
+    calculateTDS(
+      tdsVoltage,
+      isnan(temperature) ?
+      AIR_TEMP_C :
+      temperature
+    );
+
+
+  // -------------------------
+  // WATER LEVEL
+  // -------------------------
+
+  float distance =
+    readDistanceCm();
+
+
+  // If sensor height is known,
+  // calculate approximate water level
+
+  float waterLevel =
+    NAN;
+
+
+  if (
+    !isnan(distance) &&
+    SENSOR_HEIGHT_CM > 0
+  ) {
+
+    waterLevel =
+      SENSOR_HEIGHT_CM -
+      distance;
+
+    if (waterLevel < 0) {
+      waterLevel = 0;
+    }
+  }
+
+
+  // -------------------------
+  // SERIAL OUTPUT
+  // -------------------------
+
+  Serial.println();
+  Serial.println("------------------------------");
+  Serial.println("Water Reading");
+
+  Serial.print(
+    "Node: "
+  );
+
+  Serial.println(
+    NODE_ID
+  );
+
+
+  Serial.print(
+    "Temperature: "
+  );
+
+  if (isnan(temperature))
+    Serial.println("ERROR");
+  else {
+    Serial.print(
+      temperature,
+      2
+    );
+
+    Serial.println(" °C");
+  }
+
+
+  Serial.print(
+    "Turbidity Raw: "
+  );
+
+  Serial.println(
+    turbidityRaw
+  );
+
+
+  Serial.print(
+    "Turbidity Voltage: "
+  );
+
+  Serial.print(
+    turbidityVoltage,
+    3
+  );
+
+  Serial.println(" V");
+
+
+  Serial.print(
+    "TDS Raw: "
+  );
+
+  Serial.println(
+    tdsRaw
+  );
+
+
+  Serial.print(
+    "TDS Voltage: "
+  );
+
+  Serial.print(
+    tdsVoltage,
+    3
+  );
+
+  Serial.println(" V");
+
+
+  Serial.print(
+    "TDS: "
+  );
+
+  Serial.print(
+    tdsPPM,
+    1
+  );
+
+  Serial.println(" ppm");
+
+
+  Serial.print(
+    "Distance: "
+  );
+
+  if (isnan(distance))
+    Serial.println("ERROR");
+  else {
+
+    Serial.print(
+      distance,
+      2
+    );
+
+    Serial.println(" cm");
+  }
+
+
+  if (
+    SENSOR_HEIGHT_CM > 0 &&
+    !isnan(waterLevel)
+  ) {
+
+    Serial.print(
+      "Water Level: "
+    );
+
+    Serial.print(
+      waterLevel,
+      2
+    );
+
+    Serial.println(" cm");
+  }
+
+
+  Serial.println("------------------------------");
+
+
+  // =========================
+  // JSON FOR PYTHON GATEWAY
+  // =========================
+
+  Serial.print("{");
+
+  Serial.print(
+    "\"node_id\":\""
+  );
+
+  Serial.print(
+    NODE_ID
+  );
+
+  Serial.print("\",");
+
+
+  Serial.print(
+    "\"temperature\":"
+  );
+
+  if (isnan(temperature))
+    Serial.print("null");
+  else
+    Serial.print(
+      temperature,
+      2
+    );
+
+
+  Serial.print(",");
+
+
+  Serial.print(
+    "\"turbidity_raw\":"
+  );
+
+  Serial.print(
+    turbidityRaw
+  );
+
+
+  Serial.print(",");
+
+
+  Serial.print(
+    "\"turbidity_voltage\":"
+  );
+
+  Serial.print(
+    turbidityVoltage,
+    3
+  );
+
+
+  Serial.print(",");
+
+
+  Serial.print(
+    "\"tds_raw\":"
+  );
+
+  Serial.print(
+    tdsRaw
+  );
+
+
+  Serial.print(",");
+
+
+  Serial.print(
+    "\"tds_voltage\":"
+  );
+
+  Serial.print(
+    tdsVoltage,
+    3
+  );
+
+
+  Serial.print(",");
+
+
+  Serial.print(
+    "\"tds_ppm\":"
+  );
+
+  Serial.print(
+    tdsPPM,
+    1
+  );
+
+
+  Serial.print(",");
+
+
+  Serial.print(
+    "\"distance_cm\":"
+  );
+
+  if (isnan(distance))
+    Serial.print("null");
+  else
+    Serial.print(
+      distance,
+      2
+    );
+
+
+  Serial.println("}");
+
+  delay(5000);
+}
