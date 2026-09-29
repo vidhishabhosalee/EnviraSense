@@ -1,1 +1,209 @@
+#include <SPI.h>
+#include <LoRa.h>
 
+// =========================
+// HELTEC V1 LORA PINS
+// =========================
+
+#define LORA_SCK   5
+#define LORA_MISO  19
+#define LORA_MOSI  27
+#define LORA_SS    18
+#define LORA_RST   14
+#define LORA_DIO0  26
+
+#define LORA_FREQ  433E6
+
+
+// =========================
+// SETUP
+// =========================
+
+void setup() {
+
+  Serial.begin(115200);
+
+  delay(1000);
+
+  Serial.println();
+  Serial.println("==============================");
+  Serial.println(" EnviRASense LoRa Receiver");
+  Serial.println("==============================");
+
+
+  // SPI
+  SPI.begin(
+    LORA_SCK,
+    LORA_MISO,
+    LORA_MOSI,
+    LORA_SS
+  );
+
+
+  // LoRa pins
+  LoRa.setPins(
+    LORA_SS,
+    LORA_RST,
+    LORA_DIO0
+  );
+
+
+  // Start LoRa
+  if (!LoRa.begin(LORA_FREQ)) {
+
+    Serial.println(
+      "LoRa initialization failed!"
+    );
+
+    while (true) {
+      delay(1000);
+    }
+  }
+
+
+  // Same settings as transmitter
+  LoRa.setSpreadingFactor(7);
+  LoRa.setSignalBandwidth(125E3);
+  LoRa.setCodingRate4(5);
+
+  LoRa.setPreambleLength(8);
+
+  LoRa.setSyncWord(0x12);
+
+  LoRa.enableCrc();
+
+
+  Serial.println(
+    "LoRa Receiver READY"
+  );
+
+  Serial.println(
+    "Waiting for packets..."
+  );
+
+  Serial.println();
+}
+
+
+// =========================
+// MAIN LOOP
+// =========================
+
+void loop() {
+
+  int packetSize =
+    LoRa.parsePacket();
+
+  if (!packetSize) {
+    return;
+  }
+
+
+  // -------------------------
+  // READ PACKET
+  // -------------------------
+
+  String received = "";
+
+  while (LoRa.available()) {
+
+    received +=
+      (char)LoRa.read();
+  }
+
+
+  // -------------------------
+  // SIGNAL INFORMATION
+  // -------------------------
+
+  int rssi =
+    LoRa.packetRssi();
+
+  float snr =
+    LoRa.packetSnr();
+
+
+  // -------------------------
+  // SEND METADATA
+  // TO PYTHON GATEWAY
+  // -------------------------
+
+  Serial.print(
+    "LORA_META:"
+  );
+
+  Serial.print(
+    rssi
+  );
+
+  Serial.print(
+    "|"
+  );
+
+  Serial.println(
+    snr,
+    2
+  );
+
+
+  // -------------------------
+  // SEND DATA
+  // -------------------------
+
+  static unsigned long packetNumber = 0;
+
+  packetNumber++;
+
+
+  Serial.print(
+    "DATA:"
+  );
+
+  Serial.print(
+    packetNumber
+  );
+
+  Serial.print(
+    "|"
+  );
+
+  Serial.println(
+    received
+  );
+
+
+  // -------------------------
+  // DEBUG
+  // -------------------------
+
+  Serial.print(
+    "RSSI: "
+  );
+
+  Serial.print(
+    rssi
+  );
+
+  Serial.println(
+    " dBm"
+  );
+
+  Serial.print(
+    "SNR: "
+  );
+
+  Serial.print(
+    snr,
+    2
+  );
+
+  Serial.println(
+    " dB"
+  );
+
+  Serial.println(
+    "Packet received."
+  );
+
+  Serial.println();
+}
